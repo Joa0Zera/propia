@@ -12,22 +12,35 @@ Corretores perdem tempo respondendo perguntas repetitivas (preço, localização
 
 - Cada imobiliária é um tenant isolado (`org_id` + Row Level Security no Postgres/Supabase)
 - Visitantes acessam o catálogo de imóveis da imobiliária por uma URL própria (`/visit/[org_slug]`)
-- Um widget de chat (`ChatWidget`) conversa com o lead, entende o que ele procura e responde dúvidas
-- Quando o lead está qualificado, a conversa é encaminhada para o corretor via WhatsApp
+- Um widget de chat (`ChatWidget`) conversa com o lead sobre os imóveis cadastrados
 - Painel administrativo completo: dashboard, CRUD de imóveis com upload de imagens, autenticação e áreas protegidas por papel de usuário
+
+## Decisões de engenharia de IA
+
+**Respostas fundamentadas em dados estruturados, não geração livre.** Cada imóvel tem informações fixas (preço, condições, diferenciais) cadastradas no banco. O agente consulta esses dados antes de responder, em vez de deixar o modelo "lembrar" ou inferir informação sobre o imóvel. Isso elimina a classe de erro mais perigosa num agente comercial: inventar preço, condição ou detalhe que não existe.
+
+**Tratamento de falha da API de IA.** Chamadas para a API de IA têm try/catch com mensagem de fallback para o usuário — se a API falhar (timeout, rate limit), o widget não quebra silenciosamente nem trava a conversa.
+
+**Arquitetura agnóstica de provedor.** A integração de IA está desenhada para trocar de provedor sem reescrever a lógica do produto — hoje usa a API da OpenAI (mais barata, adequada à fase de validação), com migração para a API da Claude (Anthropic) planejada assim que o produto gerar receita própria.
+
+## Em andamento
+
+- **Regra de handoff para corretor**: lógica híbrida (regra determinística + IA) já desenhada — o handoff é decidido em código a partir de sinais explícitos (pedido de visita, pergunta sobre financiamento, pedido direto de contato, 3+ perguntas sobre o mesmo imóvel, ou conversa longa sem sinal claro), em vez de depender do julgamento do modelo. Implementação em `lib/handoff.ts`, ainda sendo integrada ao fluxo de chat.
+- **Testes automatizados**: suíte cobrindo os cenários de handoff (Vitest), em processo de instalação.
+- **Testes adversariais**: checklist de 10 cenários (pergunta fora de escopo, tentativa de prompt injection, lead hostil, negociação de preço, etc.) definido, execução manual ainda pendente.
 
 ## Stack
 
 - **Next.js 14** (App Router) + TypeScript + Tailwind
 - **Supabase** — banco de dados, autenticação e Row Level Security para isolamento multi-tenant
-- **API de IA** — integração construída sobre a API da OpenAI. A arquitetura do agente é agnóstica de provedor por design: a troca para a API da Claude (Anthropic) está planejada assim que o produto começar a gerar receita própria, priorizando custo operacional baixo enquanto valida o mercado
+- **OpenAI API** para o agente (ver decisão de arquitetura acima)
 - Deploy: Vercel
 
 ## Status
 
-MVP completo — todas as 5 camadas do produto implementadas (autenticação, painel admin, catálogo público, agente de IA, schema multi-tenant). Ainda não está em operação com clientes reais; próximo passo é a validação com a primeira imobiliária piloto.
+MVP completo — todas as 5 camadas do produto implementadas (autenticação, painel admin, catálogo público, agente de IA, schema multi-tenant). Ainda não está em operação com clientes reais; próximo passo é fechar os itens "Em andamento" acima antes da validação com a primeira imobiliária piloto.
 
 ## Decisões técnicas
 
 - Isolamento multi-tenant via `org_id` + RLS em vez de um banco por cliente — mais barato de operar e mais simples de escalar no início
-- Escolha da OpenAI para o agente na fase de validação por custo, com a integração desenhada para trocar de provedor de IA sem reescrever a lógica do produto
+- Handoff decidido por regra determinística em código, não pelo modelo de IA — mais confiável, mais barato (não gasta chamada extra de IA) e auditável
